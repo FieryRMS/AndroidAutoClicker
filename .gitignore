@@ -1,0 +1,3 @@
+tests
+ui_*.py
+__pycache__

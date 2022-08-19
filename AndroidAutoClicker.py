@@ -1,6 +1,7 @@
-from adbutils import adb, AdbDevice, AdbClient
+from adbutils import adb, AdbDevice
 from PySide6.QtWidgets import QApplication, QMainWindow
 from PySide6.QtGui import QImage, QPixmap, Qt
+from PySide6.QtCore import QTimer
 import scrcpy
 
 from ui_mainwindow import Ui_MainWindow
@@ -52,7 +53,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.client = scrcpy.Client(device=self.device, stay_awake=True)
         self.client.add_listener(scrcpy.EVENT_FRAME, self.on_frame)
         self.client.add_listener(scrcpy.EVENT_INIT, self.on_init)
-        self.client.start(threaded=True)
+        ## connecting status doesnt show up without a 5ms delay
+        QTimer.singleShot(5, lambda: self.client.start(threaded=False))
 
     def on_init(self):
         self.LogStatus(

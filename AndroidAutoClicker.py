@@ -54,7 +54,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.client.add_listener(scrcpy.EVENT_FRAME, self.on_frame)
         self.client.add_listener(scrcpy.EVENT_INIT, self.on_init)
         ## connecting status doesnt show up without a 5ms delay
-        QTimer.singleShot(5, lambda: self.client.start(threaded=False))
+        QTimer.singleShot(5, lambda: self.client.start(threaded=True))
 
     def on_init(self):
         self.LogStatus(
@@ -62,7 +62,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def on_frame(self, frame):
         if frame is not None and self.client.alive:
-            QImage()
             image = QImage(
                 frame,
                 frame.shape[1],

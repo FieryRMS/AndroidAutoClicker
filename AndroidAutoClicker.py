@@ -1,64 +1,44 @@
 from adbutils import adb, AdbDevice
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsScene
 from PySide6.QtGui import QImage, QPixmap, Qt
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QObject, Signal
 import scrcpy
 
 from ui_mainwindow import Ui_MainWindow
 
 
-class MainWindow(QMainWindow, Ui_MainWindow):
-    def __init__(self):
+class DeviceStream(QObject):
+    init = Signal(AdbDevice, name="init")
+    frame = Signal(QPixmap, name="frame")
+    device: AdbDevice = None
+    client: scrcpy.Client = None
+
+    def __init__(self) -> None:
         super().__init__()
-        self.setupUi(self)
-        self.showMaximized()
-        self.device: AdbDevice = None
-        self.client: scrcpy.Client = None
 
-        # button click events
-        self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
-        self.ConnectBtn.clicked.connect(self.ConnectDevice)
-        self.DisconnectBtn.clicked.connect(self.DisconnectDevice)
+    def isConnected(self):
+        if(self.device):
+            return True
+        return False
 
-        self.RefreshDeviceList()
+    def ConnectDevice(self, device: AdbDevice):
+        if(not device):
+            raise(ValueError("No device selected"))
+        if(device.get_state() == "offline"):
+            raise(ConnectionAbortedError("Device is offline!"))
 
-    def RefreshDeviceList(self):
-        self.DeviceList.clear()
-        self.DeviceList.setCurrentIndex(-1)
-
-        for i, device in enumerate(adb.iter_device()):
-            self.DeviceList.addItem(
-                f"{device.prop.model} ({device.serial})", device)
-
-            if(self.device and device.serial == self.device.serial):
-                self.DeviceList.setCurrentIndex(i)
-
-    def ConnectDevice(self):
-        device: AdbDevice = self.DeviceList.currentData()
-        try:
-            if(not device):
-                raise(ValueError("No device selected"))
-            if(device.get_state() == "offline"):
-                raise(ConnectionAbortedError("Device is offline!"))
-        except BaseException as err:
-            self.LogStatus(
-                f"An error has occured! {type(err).__name__} : {err.args[0]}")
-            self.RefreshDeviceList()
-            return
-
-        self.DisconnectDevice()
-        self.device = device
-        self.LogStatus(
-            f"Connecting to {self.device.prop.model} ({self.device.serial})...")
+        self.device=device
         self.client = scrcpy.Client(device=self.device, stay_awake=True)
         self.client.add_listener(scrcpy.EVENT_FRAME, self.on_frame)
         self.client.add_listener(scrcpy.EVENT_INIT, self.on_init)
-        ## connecting status doesnt show up without a 5ms delay
+
+    def StartStream(self):
+        # connecting status doesnt show up without a 5ms delay
         QTimer.singleShot(5, lambda: self.client.start(threaded=True))
 
     def on_init(self):
-        self.LogStatus(
-            f"Connected to {self.device.prop.model} ({self.device.serial})")
+        print(self.device)
+        self.init.emit(self.device)
 
     def on_frame(self, frame):
         if frame is not None and self.client.alive:
@@ -69,23 +49,84 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 frame.shape[1] * 3,
                 QImage.Format_BGR888,
             )
-            pix = QPixmap(image).scaled(self.DeviceView.size(),
-                                        Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.DeviceView.setPixmap(pix)
+            pix = QPixmap(image)
+            self.frame.emit(pix)
 
     def DisconnectDevice(self):
         if(self.client):
             self.client.stop()
+            self.client = None
         if(self.device):
-            self.LogStatus(
-                f"Disconneted from {self.device.prop.model} ({self.device.serial})")
             self.device = None
-        self.DeviceView.clear()
-        self.DeviceView.setText("NO DEVICE CONNECTED")
+
+class MainWindow(QMainWindow, Ui_MainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setupUi(self)
+        self.showMaximized()
+        self.stream = DeviceStream()
+
+        # event connections
+        self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
+        self.ConnectBtn.clicked.connect(self.ConnectDevice)
+        self.DisconnectBtn.clicked.connect(self.DisconnectDevice)
+        self.stream.init.connect(self.on_init)
+        self.stream.frame.connect(self.on_frame)
+
+        self.DeviceScene = QGraphicsScene(self.GraphicsView)
+        self.DefaultScene = QGraphicsScene(self.GraphicsView)
+        self.DefaultScene.addText("DEVICE NOT CONNECTED")
+        self.GraphicsView.setScene(self.DefaultScene)
+        self.RefreshDeviceList()
+
+    def RefreshDeviceList(self):
+        self.DeviceList.clear()
+        self.DeviceList.setCurrentIndex(-1)
+
+        for i, device in enumerate(adb.iter_device()):
+            self.DeviceList.addItem(
+                f"{device.prop.model} ({device.serial})", device)
+
+            if(self.stream.isConnected() and device.serial == self.stream.device.serial):
+                self.DeviceList.setCurrentIndex(i)
+        self.DeviceList.setPlaceholderText(f"None ({self.DeviceList.count()})")
+
+    def ConnectDevice(self):
+        if(self.stream.isConnected()):
+            self.DisconnectDevice()
+
+        device: AdbDevice = self.DeviceList.currentData()
+        try:
+            self.stream.ConnectDevice(device)
+        except BaseException as err:
+            self.LogStatus(
+                f"An error has occured! {type(err).__name__} : {err.args[0]}")
+            self.RefreshDeviceList()
+            return
+
+        self.LogStatus(
+            f"Connecting to {device.prop.model} ({device.serial})...")
+        self.stream.StartStream()
+
+    def on_init(self, device: AdbDevice):
+        self.LogStatus(
+            f"Connected to {device.prop.model} ({device.serial})")
+        self.DeviceScene.clear()
+        self.GraphicsView.setScene(self.DeviceScene)
+
+    def on_frame(self, frame: QPixmap):
+        self.DeviceScene.clear()
+        self.DeviceScene.addPixmap(frame)
+
+    def DisconnectDevice(self):
+        if(self.stream.isConnected()):
+            self.LogStatus(
+                f"Disconneted from {self.stream.device.prop.model} ({self.stream.device.serial})")
+        self.stream.DisconnectDevice()
+        self.GraphicsView.setScene(self.DefaultScene)
 
     def closeEvent(self, event):
-        if(self.device):
-            self.DisconnectDevice()
+        self.DisconnectDevice()
         super().closeEvent(event)
 
     def LogStatus(self, msg: str):

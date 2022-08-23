@@ -169,20 +169,7 @@
         </widget>
        </item>
        <item>
-        <widget class="QLabel" name="DeviceView">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="text">
-          <string>NO DEVICE CONNECTED</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignCenter</set>
-         </property>
-        </widget>
+        <widget class="QGraphicsView" name="GraphicsView"/>
        </item>
       </layout>
      </widget>

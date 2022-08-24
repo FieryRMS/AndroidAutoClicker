@@ -123,7 +123,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         size = self.GraphicsView.size()
         px = self.currFrame.scaled(
             size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.DeviceScene.addPixmap(px)
+        ImageItem = self.DeviceScene.addPixmap(px)
+        self.DeviceScene.setSceneRect(ImageItem.boundingRect())
 
     def resizeEvent(self, event) -> None:
         if(self.currFrame):

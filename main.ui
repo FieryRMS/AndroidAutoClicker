@@ -169,7 +169,11 @@
         </widget>
        </item>
        <item>
-        <widget class="QGraphicsView" name="GraphicsView"/>
+        <widget class="QGraphicsView" name="GraphicsView">
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+        </widget>
        </item>
       </layout>
      </widget>

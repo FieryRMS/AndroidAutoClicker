@@ -1,7 +1,7 @@
 from adbutils import adb, AdbDevice
 from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsScene
 from PySide6.QtGui import QImage, QPixmap, Qt
-from PySide6.QtCore import QTimer, QObject, Signal
+from PySide6.QtCore import QTimer, QObject, Signal, QMargins
 import scrcpy
 
 from ui_mainwindow import Ui_MainWindow
@@ -27,7 +27,7 @@ class DeviceStream(QObject):
         if(device.get_state() == "offline"):
             raise(ConnectionAbortedError("Device is offline!"))
 
-        self.device=device
+        self.device = device
         self.client = scrcpy.Client(device=self.device, stay_awake=True)
         self.client.add_listener(scrcpy.EVENT_FRAME, self.on_frame)
         self.client.add_listener(scrcpy.EVENT_INIT, self.on_init)
@@ -37,7 +37,6 @@ class DeviceStream(QObject):
         QTimer.singleShot(5, lambda: self.client.start(threaded=True))
 
     def on_init(self):
-        print(self.device)
         self.init.emit(self.device)
 
     def on_frame(self, frame):
@@ -63,8 +62,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
-        self.showMaximized()
+        # self.showMaximized()
         self.stream = DeviceStream()
+        self.currFrame = None
 
         # event connections
         self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
@@ -115,8 +115,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.GraphicsView.setScene(self.DeviceScene)
 
     def on_frame(self, frame: QPixmap):
+        self.currFrame = frame
+        self.ShowFrame()
+
+    def ShowFrame(self):
         self.DeviceScene.clear()
-        self.DeviceScene.addPixmap(frame)
+        size = self.GraphicsView.size()
+        px = self.currFrame.scaled(
+            size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.DeviceScene.addPixmap(px)
+
+    def resizeEvent(self, event) -> None:
+        if(self.currFrame):
+            self.ShowFrame()
+
+        return super().resizeEvent(event)
 
     def DisconnectDevice(self):
         if(self.stream.isConnected()):

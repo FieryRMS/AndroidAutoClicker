@@ -8,7 +8,7 @@ from ui_mainwindow import Ui_MainWindow
 
 
 class DeviceStream(QObject):
-    init = Signal(AdbDevice, name="init")
+    init = Signal(AdbDevice, BaseException, name="init")
     frame = Signal(QPixmap, name="frame")
 
     def __init__(self) -> None:
@@ -34,10 +34,16 @@ class DeviceStream(QObject):
 
     def StartStream(self):
         # connecting status doesnt show up without a 5ms delay
-        QTimer.singleShot(5, lambda: self.client.start(threaded=True))
+        QTimer.singleShot(5, self._startStream)
+
+    def _startStream(self):
+        try:
+            self.client.start(threaded=True)
+        except BaseException as err:
+            self.init.emit(None, err)
 
     def on_init(self):
-        self.init.emit(self.device)
+        self.init.emit(self.device, None)
 
     def on_frame(self, frame):
         if frame is not None and self.client.alive:
@@ -57,6 +63,7 @@ class DeviceStream(QObject):
             self.client = None
         if(self.device):
             self.device = None
+
 
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
@@ -100,19 +107,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             self.stream.ConnectDevice(device)
         except BaseException as err:
-            self.LogStatus(
-                f"An error has occured! {type(err).__name__} : {err.args[0]}")
+            self.LogError(err)
             self.RefreshDeviceList()
             return
 
         self.LogStatus(
             f"Connecting to {device.prop.model} ({device.serial})...")
+        self.ConnectBtn.setDisabled(True)
+        self.DisconnectBtn.setDisabled(True)
         self.stream.StartStream()
 
-    def on_init(self, device: AdbDevice):
+    def on_init(self, device: AdbDevice, err: BaseException):
+        self.ConnectBtn.setDisabled(False)
+        self.DisconnectBtn.setDisabled(False)
+        if(err):
+            self.LogError(err)
+            return
         self.LogStatus(
             f"Connected to {device.prop.model} ({device.serial})")
         self.DeviceScene.clear()
+        self.currPixmapItem = None
         self.GraphicsView.setScene(self.DeviceScene)
 
     def on_frame(self, frame: QPixmap):
@@ -150,6 +164,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def LogStatus(self, msg: str):
         self.statusBar().showMessage(msg)
+
+    def LogError(self, err: BaseException):
+        self.LogStatus(
+            f"An error has occured! {type(err).__name__} : {err.args[0]}")
 
 
 if __name__ == "__main__":

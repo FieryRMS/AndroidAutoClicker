@@ -1,7 +1,7 @@
 from adbutils import adb, AdbDevice
 from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsScene
 from PySide6.QtGui import QImage, QPixmap, Qt
-from PySide6.QtCore import QTimer, QObject, Signal, QMargins
+from PySide6.QtCore import QTimer, QObject, Signal
 import scrcpy
 
 from ui_mainwindow import Ui_MainWindow
@@ -10,11 +10,11 @@ from ui_mainwindow import Ui_MainWindow
 class DeviceStream(QObject):
     init = Signal(AdbDevice, name="init")
     frame = Signal(QPixmap, name="frame")
-    device: AdbDevice = None
-    client: scrcpy.Client = None
 
     def __init__(self) -> None:
         super().__init__()
+        self.device: AdbDevice = None
+        self.client: scrcpy.Client = None
 
     def isConnected(self):
         if(self.device):
@@ -65,6 +65,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # self.showMaximized()
         self.stream = DeviceStream()
         self.currFrame = None
+        self.currPixmapItem = None
 
         # event connections
         self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
@@ -119,12 +120,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ShowFrame()
 
     def ShowFrame(self):
-        self.DeviceScene.clear()
         size = self.GraphicsView.size()
         px = self.currFrame.scaled(
             size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        ImageItem = self.DeviceScene.addPixmap(px)
-        self.DeviceScene.setSceneRect(ImageItem.boundingRect())
+        if(not self.currPixmapItem):
+            self.currPixmapItem = self.DeviceScene.addPixmap(px)
+            self.currPixmapItem.setCursor(Qt.CrossCursor)
+            self.currPixmapItem.setZValue(0)
+        else:
+            self.currPixmapItem.setPixmap(px)
+        self.DeviceScene.setSceneRect(self.currPixmapItem.boundingRect())
 
     def resizeEvent(self, event) -> None:
         if(self.currFrame):

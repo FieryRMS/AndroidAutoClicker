@@ -127,6 +127,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.SceneToDeviceRatio = 1.00
         self.currPathGroup: QGraphicsItemGroup = None
         self.isDrawing = False
+        self.currSceneAction = None
 
         # event connections
         self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
@@ -193,7 +194,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         size = self.GraphicsView.size()
         px = self.currFrame.scaled(
             size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.SceneToDeviceRatio = px.size().height() / self.currFrame.size().height()
+        self.SceneToDeviceRatio = self.currFrame.size().height() / px.size().height()
         if(not self.currPixmapItem):
             self.currPixmapItem = self.DeviceScene.addPixmap(px)
             self.currPixmapItem.setCursor(Qt.CrossCursor)
@@ -204,7 +205,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def ShowDeviceAction(self, Action: DeviceAction):
         self.ClearPath()
-        self.currPathGroup.setZValue(1)
         if(Action.isPath or Action.isSwipe):
             lastPoint = Action.MousePathPoints[0]
             for point in Action.MousePathPoints:
@@ -222,15 +222,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             EllipseItem = self.DeviceScene.addEllipse(
                 QRectF(center, self.ClickSize), self.PathPen, self.Brush)
             self.currPathGroup.addToGroup(EllipseItem)
+        self.currSceneAction = Action
 
     def ClearPath(self):
         if(self.currPathGroup):
             self.DeviceScene.removeItem(self.currPathGroup)
         self.currPathGroup = self.DeviceScene.createItemGroup([])
+        self.currPathGroup.setZValue(1)
+        self.currSceneAction = None
 
     def resizeEvent(self, event) -> None:
         if(self.currFrame):
             self.ShowFrame()
+        if(self.currSceneAction):
+            self.ShowDeviceAction(self.currSceneAction)
 
         return super().resizeEvent(event)
 
@@ -255,18 +260,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             return super().eventFilter(watched, event)
 
-        if(event.type() == QEvent.GraphicsSceneMousePress
-           and isContained):
-            if(self.isDrawing):  # two buttons clicked
-                self.DeviceActions.pop()
+        if(event.type() == QEvent.GraphicsSceneMousePress):
+            if(isContained):
+                if(self.isDrawing):  # two buttons clicked
+                    self.DeviceActions.pop()
+                    self.ClearPath()
+                    self.LogStatus("Last action has been removed!")
+                    self.isDrawing = False
+                else:  # first button clicked
+                    self.DeviceActions.append(DeviceAction())
+                    self.DeviceActions[-1].StartAction(
+                        self.ConvertSceneEventToDevicePoint(event))
+                    self.isDrawing = True
+            else:
                 self.ClearPath()
-                self.LogStatus("Last action has been removed!")
-                self.isDrawing = False
-            else:  # first button clicked
-                self.DeviceActions.append(DeviceAction())
-                self.DeviceActions[-1].StartAction(
-                    self.ConvertSceneEventToDevicePoint(event))
-                self.isDrawing = True
+
 
         elif(event.type() == QEvent.GraphicsSceneMouseMove and self.isDrawing):
             if(isContained):

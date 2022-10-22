@@ -208,6 +208,9 @@
              </property>
              <item>
               <widget class="QPushButton" name="RecordButton">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
                <property name="focusPolicy">
                 <enum>Qt::NoFocus</enum>
                </property>

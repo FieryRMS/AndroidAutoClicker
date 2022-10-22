@@ -128,9 +128,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.currPathGroup: QGraphicsItemGroup = None
         self.isDrawing = False
         self.currSceneAction = None
+        self.isRecording = False
 
         # event connections
         self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
+        self.RecordButton.clicked.connect(self.ToggleRecord)
         self.ConnectBtn.clicked.connect(self.ConnectDevice)
         self.DisconnectBtn.clicked.connect(self.DisconnectDevice)
         self.stream.init.connect(self.on_init)
@@ -142,6 +144,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.GraphicsView.setScene(self.DefaultScene)
         self.DeviceScene.installEventFilter(self)
         self.RefreshDeviceList()
+
+    def ToggleRecord(self):
+        self.isRecording= not self.isRecording
+        if(self.isRecording):
+            self.RecordButton.setText("Stop Recording...")
+        else:
+            self.ClearPath()
+            self.RecordButton.setText("Start Recording...")
 
     def RefreshDeviceList(self):
         self.DeviceList.clear()
@@ -184,6 +194,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.DeviceScene.clear()
         self.currPixmapItem = None
         self.currPathGroup = None
+        self.RecordButton.setEnabled(True)
         self.GraphicsView.setScene(self.DeviceScene)
 
     def on_frame(self, frame: QPixmap):
@@ -245,6 +256,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"Disconneted from {self.stream.device.prop.model} ({self.stream.device.serial})")
         self.stream.DisconnectDevice()
         self.GraphicsView.setScene(self.DefaultScene)
+        if(self.isRecording):
+            self.ToggleRecord()
+        self.RecordButton.setEnabled(False)
 
     def closeEvent(self, event):
         self.DisconnectDevice()
@@ -254,7 +268,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         return QPointF(event.scenePos().toPoint()) * self.SceneToDeviceRatio
 
     def eventFilter(self, watched: QObject, event: QGraphicsSceneMouseEvent) -> bool:
-        if (self.currPixmapItem and isinstance(event, QGraphicsSceneMouseEvent)):
+        if (self.isRecording and self.currPixmapItem and isinstance(event, QGraphicsSceneMouseEvent)):
             isContained = self.currPixmapItem.contains(
                 event.scenePos().toPoint())
         else:

@@ -1,9 +1,13 @@
-from adbutils import adb, AdbDevice
-from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsSceneMouseEvent, QGraphicsItemGroup, QListWidget, QListWidgetItem
-from PySide6.QtGui import QImage, QPixmap, Qt, QPen, QBrush, QColor
-from PySide6.QtCore import QTimer, QObject, Signal, QPointFList, QPointF, QEvent, QLineF, QRectF, QSizeF
-import scrcpy
 from time import perf_counter
+
+import scrcpy
+from adbutils import AdbDevice, adb
+from PySide6.QtCore import (QEvent, QLineF, QObject, QPointF, QPointFList,
+                            QRectF, QSizeF, QTimer, Signal)
+from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, Qt
+from PySide6.QtWidgets import (QApplication, QGraphicsItemGroup,
+                               QGraphicsScene, QGraphicsSceneMouseEvent,
+                               QListWidget, QListWidgetItem, QMainWindow)
 
 from ui_mainwindow import Ui_MainWindow
 

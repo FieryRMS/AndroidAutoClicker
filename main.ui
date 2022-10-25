@@ -223,7 +223,7 @@
            </widget>
           </item>
           <item>
-           <widget class="QListView" name="ActionList">
+           <widget class="QListWidget" name="ActionList">
             <property name="maximumSize">
              <size>
               <width>300</width>

@@ -1,5 +1,5 @@
 from adbutils import adb, AdbDevice
-from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsSceneMouseEvent, QGraphicsItemGroup
+from PySide6.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsSceneMouseEvent, QGraphicsItemGroup, QListWidget, QListWidgetItem
 from PySide6.QtGui import QImage, QPixmap, Qt, QPen, QBrush, QColor
 from PySide6.QtCore import QTimer, QObject, Signal, QPointFList, QPointF, QEvent, QLineF, QRectF, QSizeF
 import scrcpy
@@ -66,24 +66,34 @@ class DeviceStream(QObject):
             self.device = None
 
 
-class DeviceAction():
+class DeviceAction(QListWidgetItem):
     SwipeSpeed = 50
 
-    def __init__(self) -> None:
+    def __init__(self, ActionList: QListWidget) -> None:
+        super().__init__()
         self.MousePathPoints = QPointFList()
         self.PointDelays: list[float] = []
+        self.ActionList = ActionList
         self.TimeSinceLastCall = None
         self.isPath = False
         self.isSwipe = False
         self.isClick = False
+        self.isDelay = False
+        self.setText("init")
+        self.ActionList.addItem(self)
 
-    def StartAction(self, point: QPointF):
-        self.MousePathPoints.append(point)
+    def StartAction(self, point: QPointF = None):
         self.TimeSinceLastCall = perf_counter()
+        if (point):
+            self.MousePathPoints.append(point)
+            self.setText("Waiting for action...")
+        else:
+            self.isDelay = True
+            self.setText("Delay Action")
 
     def AddPathPoint(self, point: QPointF):
         if (len(self.MousePathPoints) == 0):
-            raise (ValueError("Action was never started!"))
+            raise (ValueError("Action was never started with a point!"))
 
         self.MousePathPoints.append(point)
         CurrCall = perf_counter()
@@ -91,22 +101,33 @@ class DeviceAction():
         self.PointDelays.append(delay)
         self.TimeSinceLastCall = CurrCall
         self.isPath = True
+        self.setText("Drag Action")
 
-    def StopAction(self, point: QPointF):
-        if (len(self.MousePathPoints) == 0):
-            raise (ValueError("Action was never started!"))
+    def StopAction(self, point: QPointF = None):
+        if (len(self.MousePathPoints) == 0 and not self.isDelay):
+            raise (ValueError("Action was never started with a point!"))
 
-        if (self.isPath):
+        if (self.isDelay):
+            CurrCall = perf_counter()
+            delay = CurrCall - self.TimeSinceLastCall
+            self.PointDelays.append(delay)
+            self.setText("Delay Action: " + str(round(delay, 2)) + "s")
+        elif (self.isPath):
             self.AddPathPoint(point)
         elif (point == self.MousePathPoints[0]):
             self.isClick = True
+            self.setText("Click Action")
         elif (not self.isSwipe):
             self.isSwipe = True
+            self.setText("Swipe Action")
             self.MousePathPoints.append(point)
             self.PointDelays.append(point.manhattanLength()/self.SwipeSpeed)
         else:
             self.MousePathPoints[1] = point
             self.PointDelays[0] = point.manhattanLength()/self.SwipeSpeed
+
+    def remove(self):
+        self.ActionList.takeItem(self.ActionList.row(self))
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -120,8 +141,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         # self.showMaximized()
         self.stream = DeviceStream()
-        self.DeviceActions: list[DeviceAction] = []
-        self.ActionDelays: list[int] = []
+        self.currAction = None
+        self.currDelayAction = None
         self.currFrame = None
         self.currPixmapItem = None
         self.SceneToDeviceRatio = 1.00
@@ -146,12 +167,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.RefreshDeviceList()
 
     def ToggleRecord(self):
-        self.isRecording= not self.isRecording
-        if(self.isRecording):
+        self.isRecording = not self.isRecording
+        if (self.isRecording):
             self.RecordButton.setText("Stop Recording...")
+            self.currDelayAction = DeviceAction(self.ActionList)
+            self.currDelayAction.StartAction()
         else:
             self.ClearPath()
             self.RecordButton.setText("Start Recording...")
+            self.currDelayAction.StopAction()
 
     def RefreshDeviceList(self):
         self.DeviceList.clear()
@@ -256,7 +280,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"Disconneted from {self.stream.device.prop.model} ({self.stream.device.serial})")
         self.stream.DisconnectDevice()
         self.GraphicsView.setScene(self.DefaultScene)
-        if(self.isRecording):
+        if (self.isRecording):
             self.ToggleRecord()
         self.RecordButton.setEnabled(False)
 
@@ -277,43 +301,49 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if (event.type() == QEvent.GraphicsSceneMousePress):
             if (isContained):
                 if (self.isDrawing):  # two buttons clicked
-                    self.DeviceActions.pop()
+                    self.currAction.remove()
+                    del self.currAction
                     self.ClearPath()
                     self.LogStatus("Last action has been removed!")
                     self.isDrawing = False
                 else:  # first button clicked
-                    self.DeviceActions.append(DeviceAction())
-                    self.DeviceActions[-1].StartAction(
+                    self.currAction = DeviceAction(self.ActionList)
+                    self.currAction.StartAction(
                         self.ConvertSceneEventToDevicePoint(event))
                     self.isDrawing = True
+                    self.currDelayAction.StopAction()
             else:
                 self.ClearPath()
 
         elif (event.type() == QEvent.GraphicsSceneMouseMove and self.isDrawing):
             if (isContained):
                 if (event.buttons() & Qt.LeftButton):  # dragging
-                    self.DeviceActions[-1].AddPathPoint(
+                    self.currAction.AddPathPoint(
                         self.ConvertSceneEventToDevicePoint(event))
                 elif (event.buttons() & Qt.RightButton):  # swipe
-                    self.DeviceActions[-1].StopAction(
+                    self.currAction.StopAction(
                         self.ConvertSceneEventToDevicePoint(event))
             else:  # mouse no longer on device
-                self.DeviceActions[-1].StopAction(
-                    self.DeviceActions[-1].MousePathPoints[-1]
+                self.currAction.StopAction(
+                    self.currAction.MousePathPoints[-1]
                 )
                 self.isDrawing = False
-            self.ShowDeviceAction(self.DeviceActions[-1])
+                self.currDelayAction = DeviceAction(self.ActionList)
+                self.currDelayAction.StartAction()
+            self.ShowDeviceAction(self.currAction)
 
         elif (event.type() == QEvent.GraphicsSceneMouseRelease and self.isDrawing):
             if (isContained):
-                self.DeviceActions[-1].StopAction(
+                self.currAction.StopAction(
                     self.ConvertSceneEventToDevicePoint(event))
             else:
-                self.DeviceActions[-1].StopAction(
-                    self.DeviceActions[-1].MousePathPoints[-1]
+                self.currAction.StopAction(
+                    self.currAction.MousePathPoints[-1]
                 )
-            self.ShowDeviceAction(self.DeviceActions[-1])
+            self.ShowDeviceAction(self.currAction)
             self.isDrawing = False
+            self.currDelayAction = DeviceAction(self.ActionList)
+            self.currDelayAction.StartAction()
 
         return super().eventFilter(watched, event)
 

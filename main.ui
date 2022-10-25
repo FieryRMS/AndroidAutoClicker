@@ -230,6 +230,9 @@
               <height>16777215</height>
              </size>
             </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
            </widget>
           </item>
          </layout>

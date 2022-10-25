@@ -79,11 +79,15 @@ class DeviceAction(QListWidgetItem):
         self.isSwipe = False
         self.isClick = False
         self.isDelay = False
+        self.OriginalBg = self.background()
         self.setText("init")
         self.ActionList.addItem(self)
 
     def StartAction(self, point: QPointF = None):
-        self.TimeSinceLastCall = perf_counter()
+        self.setBackground(QColor(255, 0, 0, 125))
+
+        if (not self.isDelay):
+            self.TimeSinceLastCall = perf_counter()
         if (point):
             self.MousePathPoints.append(point)
             self.setText("Waiting for action...")
@@ -103,28 +107,38 @@ class DeviceAction(QListWidgetItem):
         self.isPath = True
         self.setText("Drag Action")
 
+    def SwipeTo(self, point: QPointF):
+        if (not self.isSwipe):
+            self.isSwipe = True
+            self.setText("Swipe Action")
+            self.MousePathPoints.append(point)
+            self.PointDelays.append(point.manhattanLength()/self.SwipeSpeed)
+        else:
+            self.setText("Swipe Action")
+
+            self.MousePathPoints[1] = point
+            self.PointDelays[0] = point.manhattanLength()/self.SwipeSpeed
+
     def StopAction(self, point: QPointF = None):
+        self.setBackground(self.OriginalBg)
         if (len(self.MousePathPoints) == 0 and not self.isDelay):
             raise (ValueError("Action was never started with a point!"))
 
         if (self.isDelay):
             CurrCall = perf_counter()
             delay = CurrCall - self.TimeSinceLastCall
-            self.PointDelays.append(delay)
+            if (len(self.PointDelays)):
+                self.PointDelays[0] = delay
+            else:
+                self.PointDelays.append(delay)
             self.setText("Delay Action: " + str(round(delay, 2)) + "s")
         elif (self.isPath):
             self.AddPathPoint(point)
         elif (point == self.MousePathPoints[0]):
             self.isClick = True
             self.setText("Click Action")
-        elif (not self.isSwipe):
-            self.isSwipe = True
-            self.setText("Swipe Action")
-            self.MousePathPoints.append(point)
-            self.PointDelays.append(point.manhattanLength()/self.SwipeSpeed)
         else:
-            self.MousePathPoints[1] = point
-            self.PointDelays[0] = point.manhattanLength()/self.SwipeSpeed
+            self.SwipeTo(point)
 
     def remove(self):
         self.ActionList.takeItem(self.ActionList.row(self))
@@ -306,6 +320,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     self.ClearPath()
                     self.LogStatus("Last action has been removed!")
                     self.isDrawing = False
+                    self.currDelayAction.StartAction()
                 else:  # first button clicked
                     self.currAction = DeviceAction(self.ActionList)
                     self.currAction.StartAction(
@@ -321,7 +336,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     self.currAction.AddPathPoint(
                         self.ConvertSceneEventToDevicePoint(event))
                 elif (event.buttons() & Qt.RightButton):  # swipe
-                    self.currAction.StopAction(
+                    self.currAction.SwipeTo(
                         self.ConvertSceneEventToDevicePoint(event))
             else:  # mouse no longer on device
                 self.currAction.StopAction(

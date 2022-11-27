@@ -15,6 +15,7 @@ from ui_mainwindow import Ui_MainWindow
 class DeviceStream(QObject):
     init = Signal(AdbDevice, BaseException, name="init")
     frame = Signal(QPixmap, name="frame")
+    disconnected = Signal(name="disconnected")
 
     def __init__(self) -> None:
         super().__init__()
@@ -36,6 +37,8 @@ class DeviceStream(QObject):
         self.client = scrcpy.Client(device=self.device, stay_awake=True)
         self.client.add_listener(scrcpy.EVENT_FRAME, self.on_frame)
         self.client.add_listener(scrcpy.EVENT_INIT, self.on_init)
+        self.client.add_listener(scrcpy.EVENT_DISCONNECT, self.disconnected.emit)
+        self.client.add_listener(scrcpy.EVENT_DISCONNECT, self.DisconnectDevice)
 
     def StartStream(self):
         # connecting status doesnt show up without a 5ms delay
@@ -176,6 +179,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.DisconnectBtn.clicked.connect(self.DisconnectDevice)
         self.stream.init.connect(self.on_init)
         self.stream.frame.connect(self.on_frame)
+        self.stream.disconnected.connect(self.DisconnectDevice)
 
         self.DeviceScene = QGraphicsScene(self.GraphicsView)
         self.DefaultScene = QGraphicsScene(self.GraphicsView)
@@ -211,24 +215,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if (self.stream.isConnected()):
             self.DisconnectDevice()
 
+        self.ConnectBtn.setDisabled(True)
+        self.DisconnectBtn.setDisabled(True)
+        self.DeviceList.setDisabled(True)
+
         device: AdbDevice = self.DeviceList.currentData()
         try:
             self.stream.ConnectDevice(device)
         except BaseException as err:
             self.LogError(err)
-            self.RefreshDeviceList()
+            self.DisconnectDevice()
             return
 
         self.LogStatus(
             f"Connecting to {device.prop.model} ({device.serial})...")
-        self.ConnectBtn.setDisabled(True)
-        self.DisconnectBtn.setDisabled(True)
         self.stream.StartStream()
 
     def on_init(self, device: AdbDevice, err: BaseException):
-        self.ConnectBtn.setDisabled(False)
         self.DisconnectBtn.setDisabled(False)
         if (err):
+            self.DisconnectDevice()
             self.LogError(err)
             return
         self.LogStatus(
@@ -301,6 +307,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if (self.isRecording):
             self.ToggleRecord()
         self.RecordButton.setEnabled(False)
+        self.DeviceList.setDisabled(False)
+        self.ConnectBtn.setDisabled(False)
+        self.DisconnectBtn.setDisabled(True)
+        self.RefreshDeviceList()
 
     def closeEvent(self, event):
         self.DisconnectDevice()

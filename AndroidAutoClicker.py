@@ -37,8 +37,10 @@ class DeviceStream(QObject):
         self.client = scrcpy.Client(device=self.device, stay_awake=True)
         self.client.add_listener(scrcpy.EVENT_FRAME, self.on_frame)
         self.client.add_listener(scrcpy.EVENT_INIT, self.on_init)
-        self.client.add_listener(scrcpy.EVENT_DISCONNECT, self.disconnected.emit)
-        self.client.add_listener(scrcpy.EVENT_DISCONNECT, self.DisconnectDevice)
+        self.client.add_listener(
+            scrcpy.EVENT_DISCONNECT, self.disconnected.emit)
+        self.client.add_listener(
+            scrcpy.EVENT_DISCONNECT, self.DisconnectDevice)
 
     def StartStream(self):
         # connecting status doesnt show up without a 5ms delay
@@ -71,6 +73,28 @@ class DeviceStream(QObject):
             self.client = None
         if (self.device):
             self.device = None
+
+    def StartDrag(self, point: QPointF):
+        if (self.isConnected()):
+            self.client.control.touch(point.x(), point.y(), scrcpy.ACTION_DOWN)
+
+    def MoveDrag(self, point: QPointF):
+        if (self.isConnected()):
+            self.client.control.touch(point.x(), point.y(), scrcpy.ACTION_MOVE)
+
+    def StopDrag(self, point: QPointF):
+        if (self.isConnected()):
+            self.client.control.touch(point.x(), point.y(), scrcpy.ACTION_UP)
+
+    def DoSwipe(self, point1: QPointF, point2: QPointF):
+        if (self.isConnected()):
+            self.client.control.swipe(
+                point1.x(), point1.y(), point2.x(), point2.y())
+
+    def DoClick(self, point: QPointF):
+        if (self.isConnected()):
+            self.StartDrag(point)
+            self.StopDrag(point)
 
 
 class DeviceAction(QListWidgetItem):
@@ -119,25 +143,18 @@ class DeviceAction(QListWidgetItem):
             self.isSwipe = True
             self.setText("Swipe Action")
             self.MousePathPoints.append(point)
-            self.PointDelays.append(point.manhattanLength()/self.SwipeSpeed)
         else:
-            self.setText("Swipe Action")
-
             self.MousePathPoints[1] = point
-            self.PointDelays[0] = point.manhattanLength()/self.SwipeSpeed
 
     def StopAction(self, point: QPointF = None):
         self.setBackground(self.OriginalBg)
         if (len(self.MousePathPoints) == 0 and not self.isDelay):
             raise (ValueError("Action was never started with a point!"))
 
+        CurrCall = perf_counter()
+        delay = CurrCall - self.TimeSinceLastCall
+        self.PointDelays.append(delay)
         if (self.isDelay):
-            CurrCall = perf_counter()
-            delay = CurrCall - self.TimeSinceLastCall
-            if (len(self.PointDelays)):
-                self.PointDelays[0] = delay
-            else:
-                self.PointDelays.append(delay)
             self.setText("Delay Action: " + str(round(delay, 2)) + "s")
         elif (self.isPath):
             self.AddPathPoint(point)
@@ -171,12 +188,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.isDrawing = False
         self.currSceneAction = None
         self.isRecording = False
+        self.isPlaying = False
+        self.PlayActionListIndex = -1
+        self.PlaySingleActionIndex = -1
 
         # event connections
         self.RefreshBtn.clicked.connect(self.RefreshDeviceList)
         self.RecordButton.clicked.connect(self.ToggleRecord)
         self.ConnectBtn.clicked.connect(self.ConnectDevice)
         self.DisconnectBtn.clicked.connect(self.DisconnectDevice)
+        self.PlayButton.clicked.connect(self.TogglePlay)
         self.stream.init.connect(self.on_init)
         self.stream.frame.connect(self.on_frame)
         self.stream.disconnected.connect(self.DisconnectDevice)
@@ -188,14 +209,85 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.DeviceScene.installEventFilter(self)
         self.RefreshDeviceList()
 
+    def PlayActionList(self):
+        if (not self.isPlaying):
+            self.PlayActionListIndex = -1
+            return
+
+        prevIdx = self.PlayActionListIndex
+        self.PlayActionListIndex += 1
+        if (self.PlayActionListIndex >= self.ActionList.count()):
+            self.PlayActionListIndex = 0
+        if (prevIdx == -1):
+            prevIdx = self.ActionList.count()-1
+
+        currItem = self.ActionList.item(self.PlayActionListIndex)
+        prevItem = self.ActionList.item(prevIdx)
+
+        # set colors
+        currItem.setBackground(QColor(0, 255, 0, 125))
+        prevItem.setBackground(prevItem.OriginalBg)
+
+        self.PlaySingleActionIndex = -1
+        self.PlaySingleAction(currItem)
+
+    def PlaySingleAction(self, currItem: DeviceAction):
+        if (not self.isPlaying):
+            self.PlaySingleActionIndex = -1
+            return
+
+        if (currItem.isDelay):
+            QTimer.singleShot(
+                currItem.PointDelays[0]*1000, self.PlayActionList)
+            return
+
+        self.PlaySingleActionIndex += 1
+        if (self.PlaySingleActionIndex >= len(currItem.MousePathPoints)):
+            QTimer.singleShot(0, self.PlayActionList)
+            return
+
+        if (currItem.isClick):
+            self.stream.DoClick(currItem.MousePathPoints[0])
+            QTimer.singleShot(0, self.PlayActionList)
+        elif (currItem.isSwipe):
+            self.stream.DoSwipe(currItem.MousePathPoints[0],
+                                currItem.MousePathPoints[1])
+            QTimer.singleShot(0, self.PlayActionList)
+        elif (currItem.isPath):
+            if (self.PlaySingleActionIndex == 0):
+                self.stream.StartDrag(currItem.MousePathPoints[0])
+            elif (self.PlaySingleActionIndex >= len(currItem.MousePathPoints)-1):
+                self.stream.StopDrag(currItem.MousePathPoints[-1])
+            else:
+                self.stream.MoveDrag(
+                    currItem.MousePathPoints[self.PlaySingleActionIndex])
+            QTimer.singleShot(currItem.PointDelays[self.PlaySingleActionIndex]*1000,
+                              lambda: self.PlaySingleAction(currItem))
+
+    def TogglePlay(self):
+        if (self.ActionList.count() == 0):
+            self.LogStatus("No actions to play!")
+            return
+
+        self.isPlaying = not self.isPlaying
+        if (self.isPlaying):
+            self.RecordButton.setDisabled(True)
+            self.PlayButton.setText("Stop...")
+            self.PlayActionList()
+        else:
+            self.RecordButton.setDisabled(False)
+            self.PlayButton.setText("Play...")
+
     def ToggleRecord(self):
         self.isRecording = not self.isRecording
         if (self.isRecording):
+            self.PlayButton.setDisabled(True)
             self.RecordButton.setText("Stop Recording...")
             self.currDelayAction = DeviceAction(self.ActionList)
             self.currDelayAction.StartAction()
         else:
             self.ClearPath()
+            self.PlayButton.setDisabled(False)
             self.RecordButton.setText("Start Recording...")
             self.currDelayAction.StopAction()
 
@@ -346,16 +438,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         elif (event.type() == QEvent.GraphicsSceneMouseMove and self.isDrawing):
             if (isContained):
+                point = self.ConvertSceneEventToDevicePoint(event)
                 if (event.buttons() & Qt.LeftButton):  # dragging
-                    self.currAction.AddPathPoint(
-                        self.ConvertSceneEventToDevicePoint(event))
+                    if (not self.currAction.isPath):  # path is starting
+                        self.stream.StartDrag(
+                            self.currAction.MousePathPoints[0])
+                    else:
+                        self.stream.MoveDrag(point)
+                    self.currAction.AddPathPoint(point)
                 elif (event.buttons() & Qt.RightButton):  # swipe
-                    self.currAction.SwipeTo(
-                        self.ConvertSceneEventToDevicePoint(event))
+                    self.currAction.SwipeTo(point)
             else:  # mouse no longer on device
                 self.currAction.StopAction(
                     self.currAction.MousePathPoints[-1]
                 )
+                if (self.currAction.isPath):  # path is ending
+                    self.stream.StopDrag(self.currAction.MousePathPoints[-1])
+                elif (self.currAction.isSwipe):  # swipe is ending
+                    self.stream.DoSwipe(self.currAction.MousePathPoints[0],
+                                        self.currAction.MousePathPoints[1])
                 self.isDrawing = False
                 self.currDelayAction = DeviceAction(self.ActionList)
                 self.currDelayAction.StartAction()
@@ -369,6 +470,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.currAction.StopAction(
                     self.currAction.MousePathPoints[-1]
                 )
+            if (self.currAction.isPath):  # path is ending
+                self.stream.StopDrag(self.currAction.MousePathPoints[-1])
+            elif (self.currAction.isSwipe):  # swipe is ending
+                self.stream.DoSwipe(self.currAction.MousePathPoints[0],
+                                    self.currAction.MousePathPoints[1])
+            elif (self.currAction.isClick):
+                self.stream.DoClick(self.currAction.MousePathPoints[0])
             self.ShowDeviceAction(self.currAction)
             self.isDrawing = False
             self.currDelayAction = DeviceAction(self.ActionList)
